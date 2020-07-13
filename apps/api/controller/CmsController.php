@@ -10,6 +10,7 @@ namespace app\api\controller;
 
 use core\basic\Controller;
 use app\api\model\CmsModel;
+use core\basic\Url;
 
 class CmsController extends Controller
 {
@@ -182,22 +183,22 @@ class CmsController extends Controller
         }
         
         $num = request('num', 'int') ?: $this->config('pagesize');
-        $order = request('order');
+        $rorder = request('order');
         $tags = request('tags', 'vars');
         $fuzzy = request('fuzzy', 'int') ?: true;
         
-        if (! preg_match('/^[\w\-,\s]+$/', $order)) {
+        if (! preg_match('/^[\w\-,\s]+$/', $rorder)) {
             $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
         } else {
-            switch ($order) {
+            switch ($rorder) {
                 case 'id':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.id DESC,a.date DESC,a.sorting ASC';
+                    $order = 'a.id DESC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC';
                     break;
                 case 'date':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.date DESC,a.sorting ASC,a.id DESC';
+                    $order = 'a.date DESC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.id DESC';
                     break;
                 case 'sorting':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    $order = 'a.sorting ASC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.date DESC,a.id DESC';
                     break;
                 case 'istop':
                     $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
@@ -206,15 +207,34 @@ class CmsController extends Controller
                     $order = 'a.isrecommend DESC,a.istop DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
                     break;
                 case 'isheadline':
-                    $order = 'a.isheadline DESC,a.istop DESC,a.isrecommend DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    $order = 'a.isrecommend DESC,a.istop DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
                     break;
                 case 'visits':
                 case 'likes':
                 case 'oppose':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,' . $order . ' DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    $order = $rorder . ' DESC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    break;
+                case 'random': // 随机取数
+                    $db_type = get_db_type();
+                    if ($db_type == 'mysql') {
+                        $order = "RAND()";
+                    } elseif ($db_type == 'sqlite') {
+                        $order = "RANDOM()";
+                    }
                     break;
                 default:
-                    $order = $order . ',a.sorting ASC,a.date DESC,a.id DESC';
+                    if ($rorder) {
+                        $orders = explode(',', $rorder);
+                        foreach ($orders as $k => $v) {
+                            if (strpos($v, 'ext_') === 0) {
+                                $orders[$k] = 'e.' . $v;
+                            } else {
+                                $orders[$k] = 'a.' . $v;
+                            }
+                        }
+                        $order = implode(',', $orders);
+                        $order .= ',a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    }
             }
         }
         
@@ -309,20 +329,33 @@ class CmsController extends Controller
         
         // 读取数据
         $data = $this->model->getLists($acode, $scode, $num, $order, $where1, $where2, $where3, $fuzzy);
+        $url_break_char = $this->config('url_break_char') ?: '_';
         
         foreach ($data as $key => $value) {
             if ($value->outlink) {
-                $data[$key]->link = $data[$key]->outlink;
+                $data[$key]->apilink = $value->outlink;
             } else {
-                $data[$key]->link = url('/api/list/index/scode/' . $data[$key]->id, false);
+                $data[$key]->apilink = url('/api/content/index/scode/' . $value->id, false);
             }
-            $data[$key]->likeslink = url('/home/Do/likes/id/' . $data[$key]->id, false);
-            $data[$key]->opposelink = url('/home/Do/oppose/id/' . $data[$key]->id, false);
-            $data[$key]->content = str_replace(STATIC_DIR . '/upload/', get_http_url() . STATIC_DIR . '/upload/', $data[$key]->content);
+            $data[$key]->likeslink = url('/home/Do/likes/id/' . $value->id, false);
+            $data[$key]->opposelink = url('/home/Do/oppose/id/' . $value->id, false);
+            $data[$key]->content = str_replace(STATIC_DIR . '/upload/', get_http_url() . STATIC_DIR . '/upload/', $value->content);
+            
+            // 返回网页链接地址，便于AJAX调用内容
+            $urlname = $value->urlname ?: 'list';
+            if ($value->sortfilename && $value->filename) {
+                $data[$key]->contentlink = Url::home($value->sortfilename . '/' . $value->filename, true);
+            } elseif ($value->sortfilename) {
+                $data[$key]->contentlink = Url::home($value->sortfilename . '/' . $value->id, true);
+            } elseif ($value->filename) {
+                $data[$key]->contentlink = Url::home($urlname . $url_break_char . $value->scode . '/' . $value->filename, true);
+            } else {
+                $data[$key]->contentlink = Url::home($urlname . $url_break_char . $value->scode . '/' . $value->id, true);
+            }
         }
         
         // 输出数据
-        if (get('page') <= PAGECOUNT) {
+        if (request('page') <= PAGECOUNT) {
             json(1, $data);
         } else {
             return json(0, '已经到底了！');
@@ -339,7 +372,7 @@ class CmsController extends Controller
         // 获取栏目数
         $data = $this->model->getMessage($acode, $num);
         
-        if (get('page') <= PAGECOUNT) {
+        if (request('page') <= PAGECOUNT) {
             json(1, $data);
         } else {
             return json(0, '已经到底了！');
@@ -350,6 +383,10 @@ class CmsController extends Controller
     public function addmsg()
     {
         if ($_POST) {
+            
+            if ($this->config('message_status') === '0') {
+                json(0, '系统已经关闭留言功能，请到后台开启再试！');
+            }
             
             // 读取字段
             if (! $form = $this->model->getFormField(1)) {
@@ -363,6 +400,7 @@ class CmsController extends Controller
                 if (is_array($field_data)) { // 如果是多选等情况时转换
                     $field_data = implode(',', $field_data);
                 }
+                $field_data = str_replace('pboot:if', '', $field_data);
                 if ($value->required && ! $field_data) {
                     json(0, $value->description . '不能为空！');
                 } else {
@@ -375,7 +413,7 @@ class CmsController extends Controller
             
             // 设置其他字段
             if ($data) {
-                $data['acode'] = get('acode', 'var') ?: $this->lg;
+                $data['acode'] = request('acode', 'var') ?: $this->lg;
                 $data['user_ip'] = ip2long(get_user_ip());
                 $data['user_os'] = get_user_os();
                 $data['user_bs'] = get_user_bs();
@@ -421,7 +459,7 @@ class CmsController extends Controller
         // 获取表数据
         $data = $this->model->getForm($table, $num);
         
-        if (get('page') <= PAGECOUNT) {
+        if (request('page') <= PAGECOUNT) {
             json(1, $data);
         } else {
             return json(0, '已经到底了！');
@@ -433,8 +471,12 @@ class CmsController extends Controller
     {
         if ($_POST) {
             
-            if (! $fcode = get('fcode', 'var')) {
+            if (! $fcode = request('fcode', 'var')) {
                 json(0, '传递的表单编码fcode有误！');
+            }
+            
+            if ($this->config('form_status') === '0') {
+                json(0, '系统已经关闭表单功能，请到后台开启再试！');
             }
             
             // 读取字段
@@ -449,6 +491,7 @@ class CmsController extends Controller
                 if (is_array($field_data)) { // 如果是多选等情况时转换
                     $field_data = implode(',', $field_data);
                 }
+                $field_data = str_replace('pboot:if', '', $field_data);
                 if ($value->required && ! $field_data) {
                     json(0, $value->description . '不能为空！');
                 } else {

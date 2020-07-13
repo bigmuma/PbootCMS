@@ -10,6 +10,7 @@ namespace app\api\controller;
 
 use core\basic\Controller;
 use app\api\model\CmsModel;
+use core\basic\Url;
 
 class ListController extends Controller
 {
@@ -27,19 +28,19 @@ class ListController extends Controller
         $acode = request('acode', 'var') ?: get_default_lg();
         $scode = request('scode', 'var') ?: '';
         $num = request('num', 'int') ?: $this->config('pagesize');
-        $order = request('order');
-        if (! preg_match('/^[\w\-,\s]+$/', $order)) {
+        $rorder = request('order');
+        if (! preg_match('/^[\w\-,\s]+$/', $rorder)) {
             $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
         } else {
-            switch ($order) {
+            switch ($rorder) {
                 case 'id':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.id DESC,a.date DESC,a.sorting ASC';
+                    $order = 'a.id DESC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC';
                     break;
                 case 'date':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.date DESC,a.sorting ASC,a.id DESC';
+                    $order = 'a.date DESC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.id DESC';
                     break;
                 case 'sorting':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    $order = 'a.sorting ASC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.date DESC,a.id DESC';
                     break;
                 case 'istop':
                     $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
@@ -48,34 +49,66 @@ class ListController extends Controller
                     $order = 'a.isrecommend DESC,a.istop DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
                     break;
                 case 'isheadline':
-                    $order = 'a.isheadline DESC,a.istop DESC,a.isrecommend DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    $order = 'a.isrecommend DESC,a.istop DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
                     break;
                 case 'visits':
                 case 'likes':
                 case 'oppose':
-                    $order = 'a.istop DESC,a.isrecommend DESC,a.isheadline DESC,' . $order . ' DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    $order = $rorder . ' DESC,a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    break;
+                case 'random': // 随机取数
+                    $db_type = get_db_type();
+                    if ($db_type == 'mysql') {
+                        $order = "RAND()";
+                    } elseif ($db_type == 'sqlite') {
+                        $order = "RANDOM()";
+                    }
                     break;
                 default:
-                    $order = $order . ',a.sorting ASC,a.date DESC,a.id DESC';
+                    if ($rorder) {
+                        $orders = explode(',', $rorder);
+                        foreach ($orders as $k => $v) {
+                            if (strpos($v, 'ext_') === 0) {
+                                $orders[$k] = 'e.' . $v;
+                            } else {
+                                $orders[$k] = 'a.' . $v;
+                            }
+                        }
+                        $order = implode(',', $orders);
+                        $order .= ',a.istop DESC,a.isrecommend DESC,a.isheadline DESC,a.sorting ASC,a.date DESC,a.id DESC';
+                    }
             }
         }
         
         // 读取数据
         $data = $this->model->getLists($acode, $scode, $num, $order);
+        $url_break_char = $this->config('url_break_char') ?: '_';
         
         foreach ($data as $key => $value) {
             if ($value->outlink) {
-                $data[$key]->link = $data->outlink;
+                $data[$key]->apilink = $value->outlink;
             } else {
-                $data[$key]->link = url('/api/list/index/scode/' . $data[$key]->id, false);
+                $data[$key]->apilink = url('/api/content/index/id/' . $value->id, false);
             }
-            $data[$key]->likeslink = url('/home/Do/likes/id/' . $data[$key]->id, false);
-            $data[$key]->opposelink = url('/home/Do/oppose/id/' . $data[$key]->id, false);
-            $data[$key]->content = str_replace(STATIC_DIR . '/upload/', get_http_url() . STATIC_DIR . '/upload/', $data[$key]->content);
+            $data[$key]->likeslink = url('/home/Do/likes/id/' . $value->id, false);
+            $data[$key]->opposelink = url('/home/Do/oppose/id/' . $value->id, false);
+            $data[$key]->content = str_replace(STATIC_DIR . '/upload/', get_http_url() . STATIC_DIR . '/upload/', $value->content);
+            
+            // 返回网页链接地址，便于AJAX调用内容
+            $urlname = $value->urlname ?: 'list';
+            if ($value->sortfilename && $value->filename) {
+                $data[$key]->contentlink = Url::home($value->sortfilename . '/' . $value->filename, true);
+            } elseif ($value->sortfilename) {
+                $data[$key]->contentlink = Url::home($value->sortfilename . '/' . $value->id, true);
+            } elseif ($value->filename) {
+                $data[$key]->contentlink = Url::home($urlname . $url_break_char . $value->scode . '/' . $value->filename, true);
+            } else {
+                $data[$key]->contentlink = Url::home($urlname . $url_break_char . $value->scode . '/' . $value->id, true);
+            }
         }
         
         // 输出数据
-        if (get('page') <= PAGECOUNT) {
+        if (request('page') <= PAGECOUNT) {
             json(1, $data);
         } else {
             return json(0, '已经到底了！');

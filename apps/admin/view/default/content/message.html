@@ -46,6 +46,12 @@
 								操作系统:[value->user_os]
 							</td>
 					    </tr>
+					    {if($value->username)}
+					    <tr>
+					      	<th>会员账号</th>
+					      	<td>[value->username]([value->nickname])</td>
+					    </tr>
+					    {/if}
 					    <tr>
 					      	<th>回复内容</th>
 					      	<td>[value->recontent]</td>
@@ -53,6 +59,15 @@
 	  	   			</tbody>
 	            </table>
 	            {/foreach}
+	            
+	            {if(session('ucode')==10001 && [$messages])}
+			     	<a href="{url./admin/Message/clear}"  onclick='return confirm("您确定要清空么？")' class="layui-btn layui-btn-sm">清空记录</a>
+			    {/if}
+			    
+			    {if([$messages])}
+			    <a href="{url./admin/Message/index/export/1}" class="layui-btn layui-btn-sm">导出记录</a>
+			    {/if}
+			    
 	            <div class="page">{$pagebar}</div>
 	  	   </div>
 	  	 </div>

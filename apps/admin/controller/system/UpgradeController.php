@@ -32,7 +32,7 @@ class UpgradeController extends Controller
     public function __construct()
     {
         error_reporting(0);
-        $this->branch = $this->config('upgrade_branch') == '2.X.dev' ? '2.X.dev' : '2.X';
+        $this->branch = $this->config('upgrade_branch') == '3.X.dev' ? '3.X.dev' : '3.X';
         $this->force = $this->config('upgrade_force') ?: 0;
         $this->revise = $this->config('revise_version') ?: 0;
     }
@@ -50,6 +50,8 @@ class UpgradeController extends Controller
         $this->assign('branch', $this->branch);
         $this->assign('force', $this->force);
         $this->assign('revise', $this->revise);
+        $this->assign('snuser', $this->config('sn_user') ?: 0);
+        $this->assign('site', get_http_url());
         $this->display('system/upgrade.html');
     }
 
@@ -66,6 +68,8 @@ class UpgradeController extends Controller
         $files = $this->getServerList();
         $db = get_db_type();
         foreach ($files as $key => $value) {
+            // 过滤掉相对路径
+            $value->path = preg_replace_r('{\.\.(\/|\\\\)}', '', $value->path);
             $file = ROOT_PATH . $value->path;
             if (@md5_file($file) != $value->md5) {
                 // 筛选数据库更新脚本
@@ -95,42 +99,40 @@ class UpgradeController extends Controller
     // 执行下载
     public function down()
     {
-        if ($_POST) {
-            if (! ! $list = post('list')) {
-                if (! is_array($list)) { // 单个文件转换为数组
-                    $list = array(
-                        $list
-                    );
+        if (! ! $list = get('list')) {
+            if (! is_array($list)) { // 单个文件转换为数组
+                $list = array(
+                    $list
+                );
+            }
+            $len = count($list) ?: 0;
+            foreach ($list as $value) {
+                // 过滤掉相对路径
+                $value = preg_replace_r('{\.\.(\/|\\\\)}', '', $value);
+                // 本地存储路径
+                $path = RUN_PATH . '/upgrade' . $value;
+                // 自动创建目录
+                if (! check_dir(dirname($path), true)) {
+                    json(0, '目录写入权限不足，无法下载升级文件！' . dirname($path));
                 }
-                $len = count($list) ?: 0;
-                foreach ($list as $value) {
-                    // 本地存储路径
-                    $path = RUN_PATH . '/upgrade' . $value;
-                    // 自动创建目录
-                    if (! check_dir(dirname($path), true)) {
-                        json(0, '目录写入权限不足，无法下载升级文件！' . dirname($path));
-                    }
-                    
-                    // 定义执行下载的类型
-                    $types = '.zip|.rar|.doc|.docx|.ppt|.pptx|.xls|.xlsx|.chm|';
-                    $pathinfo = explode(".", basename($path));
-                    $ext = end($pathinfo); // 获取扩展
-                    if (preg_match('/\.' . $ext . '\|/i', $types)) {
-                        $result = $this->getServerDown('/release/' . $this->branch . $value, $path);
-                    } else {
-                        $result = $this->getServerFile($value, $path);
-                    }
-                }
-                if ($len == 1) {
-                    json(1, "更新文件 " . basename($value) . " 下载成功!");
+                
+                // 定义执行下载的类型
+                $types = '.zip|.rar|.doc|.docx|.ppt|.pptx|.xls|.xlsx|.chm|.ttf|.otf|';
+                $pathinfo = explode(".", basename($path));
+                $ext = end($pathinfo); // 获取扩展
+                if (preg_match('/\.' . $ext . '\|/i', $types)) {
+                    $result = $this->getServerDown('/release/' . $this->branch . $value, $path);
                 } else {
-                    json(1, "更新文件" . basename($value) . "等文件全部下载成功!");
+                    $result = $this->getServerFile($value, $path);
                 }
+            }
+            if ($len == 1) {
+                json(1, "更新文件 " . basename($value) . " 下载成功!");
             } else {
-                json(0, '请选择要下载的文件！');
+                json(1, "更新文件" . basename($value) . "等文件全部下载成功!");
             }
         } else {
-            json(0, '请使用POST提交请求！');
+            json(0, '请选择要下载的文件！');
         }
     }
 
@@ -144,7 +146,10 @@ class UpgradeController extends Controller
                 
                 // 分离文件
                 foreach ($list as $value) {
-                    if (stripos($value, '/script/') !== false) {
+                    // 过滤掉相对路径
+                    $value = preg_replace_r('{\.\.(\/|\\\\)}', '', $value);
+                    
+                    if (stripos($value, '/script/') === 0 && preg_match('/\.sql$/i', $value)) {
                         $sqls[] = $value;
                     } else {
                         $path = RUN_PATH . '/upgrade' . $value;
@@ -157,6 +162,14 @@ class UpgradeController extends Controller
                             check_dir(dirname($back_path), true);
                             copy($des_path, $back_path);
                         }
+                        
+                        // 如果后台入口文件修改过名字，则自动适配
+                        if (stripos($path, 'admin.php') !== false && stripos($_SERVER['SCRIPT_FILENAME'], 'admin.php') === false) {
+                            if (file_exists($_SERVER['SCRIPT_FILENAME'])) {
+                                $des_path = $_SERVER['SCRIPT_FILENAME'];
+                            }
+                        }
+                        
                         $files[] = array(
                             'sfile' => $path,
                             'dfile' => $des_path
@@ -256,7 +269,7 @@ class UpgradeController extends Controller
             'branch' => $this->branch,
             'force' => $this->force,
             'site' => get_http_url(),
-            'sn_user' => $this->config('sn_user')
+            'snuser' => $this->config('sn_user')
         );
         $url = $this->server . '/index.php?p=/upgrade/getlist&' . http_build_query($param);
         if (! ! $rs = json_decode(get_url($url, '', '', true))) {

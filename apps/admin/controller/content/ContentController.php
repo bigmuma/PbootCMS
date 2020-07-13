@@ -60,12 +60,14 @@ class ContentController extends Controller
             $this->assign('extfield', model('admin.content.ExtField')->getModelField($mcode));
             
             $this->assign('baidu_zz_token', $this->config('baidu_zz_token'));
-            $this->assign('baidu_xzh_appid', $this->config('baidu_xzh_appid'));
-            $this->assign('baidu_xzh_token', $this->config('baidu_xzh_token'));
+            $this->assign('baidu_ks_token', $this->config('baidu_ks_token'));
             
             // 前端地址连接符判断
             $url_break_char = $this->config('url_break_char') ?: '_';
             $this->assign('url_break_char', $url_break_char);
+            
+            // 获取会员分组
+            $this->assign('groups', model('admin.member.MemberGroup')->getSelect());
         }
         
         $this->display('content/content.html');
@@ -98,6 +100,10 @@ class ContentController extends Controller
             $istop = post('istop', 'int', '', '', 0);
             $isrecommend = post('isrecommend', 'int', '', '', 0);
             $isheadline = post('isheadline', 'int', '', '', 0);
+            
+            $gid = post('gid', 'int') ?: 0;
+            $gtype = post('gtype', 'int') ?: 4;
+            $gnote = post('gnote');
             
             if (! $scode) {
                 alert_back('内容分类不能为空！');
@@ -156,6 +162,9 @@ class ContentController extends Controller
                 'istop' => $istop,
                 'isrecommend' => $isrecommend,
                 'isheadline' => $isheadline,
+                'gid' => $gid,
+                'gtype' => $gtype,
+                'gnote' => $gnote,
                 'visits' => 0,
                 'likes' => 0,
                 'oppose' => 0,
@@ -197,26 +206,6 @@ class ContentController extends Controller
                 $this->log('新增文章失败！');
                 error('新增失败！', - 1);
             }
-        } else {
-            $this->assign('add', true);
-            
-            if (! $mcode = get('mcode', 'var')) {
-                error('传递的模型编码参数有误，请核对后重试！');
-            }
-            
-            // 文章分类
-            $sort_model = model('admin.content.ContentSort');
-            $sort_select = $sort_model->getListSelect($mcode);
-            $this->assign('sort_select', $this->makeSortSelect($sort_select, session('addscode')));
-            $this->assign('subsort_select', $this->makeSortSelect($sort_select));
-            
-            // 模型名称
-            $this->assign('model_name', model('admin.content.Model')->getName($mcode));
-            
-            // 扩展字段
-            $this->assign('extfield', model('admin.content.ExtField')->getModelField($mcode));
-            
-            $this->display('content/content.html');
         }
     }
 
@@ -338,23 +327,23 @@ class ContentController extends Controller
                     // 依次推送
                     $domain = get_http_url();
                     if (! $token = $this->config('baidu_zz_token')) {
-                        alert_back('请先到系统配置中填写百度链接推送token值！');
+                        alert_back('请先到系统配置中填写百度普通收录推送token值！');
                     }
                     $api = "http://data.zz.baidu.com/urls?site=$domain&token=$token";
                     foreach ($list as $key => $value) {
                         $url = $domain . $urls[$value];
-                        $this->log('百度推送：' . $url);
+                        $this->log('百度普通收录推送：' . $url);
                         $post_urls[] = $url;
                     }
                     $result = post_baidu($api, $post_urls);
                     if (isset($result->error)) {
-                        alert_back('推送发生错误：' . $result->message);
+                        alert_back('百度普通收录推送发生错误：' . $result->message);
                     } elseif (isset($result->success)) {
                         alert_back('成功推送' . $result->success . '条，今天剩余可推送' . $result->remain . '条数!');
                     } else {
                         alert_back('发生未知错误！');
                     }
-                case 'baiduxzh':
+                case 'baiduks':
                     $list = post('list');
                     $urls = post('urls');
                     if (! $list) {
@@ -362,34 +351,20 @@ class ContentController extends Controller
                     }
                     // 依次推送
                     $domain = get_http_url();
-                    $appid = $this->config('baidu_xzh_appid');
-                    $token = $this->config('baidu_xzh_token');
-                    $type = ($this->config('baidu_xzh_type')) ? 'batch' : 'realtime';
-                    if (! $appid || ! $token) {
-                        alert_back('请先到系统配置中填写百度熊掌号推送appid及token值！');
+                    if (! $token = $this->config('baidu_ks_token')) {
+                        alert_back('请先到系统配置中填写百度快速收录推送token值！');
                     }
-                    $api = "http://data.zz.baidu.com/urls?appid=$appid&token=$token&type=$type";
+                    $api = "http://data.zz.baidu.com/urls?site=$domain&token=$token&type=daily";
                     foreach ($list as $key => $value) {
                         $url = $domain . $urls[$value];
-                        $this->log('熊掌号推送：' . $url);
+                        $this->log('百度快速收录推送：' . $url);
                         $post_urls[] = $url;
                     }
                     $result = post_baidu($api, $post_urls);
-                    
-                    if ($type == 'batch') {
-                        $success = 'success_batch';
-                        $remain = 'remain_batch';
-                    } else {
-                        $success = 'success_realtime';
-                        $remain = 'remain_realtime';
-                    }
-                    
                     if (isset($result->error)) {
-                        alert_back('推送发生错误：' . $result->message);
-                    } elseif (isset($result->$success) || isset($result->$remain)) {
-                        alert_back('成功推送' . $result->$success . '条，今天剩余可推送' . $result->$remain . '条数!');
-                    } elseif (isset($result->success)) {
-                        alert_back('推送失败，不合规地址' . count($result->not_same_site) . '条！');
+                        alert_back('百度快速收录推送发生错误：' . $result->message);
+                    } elseif (isset($result->success_daily)) {
+                        alert_back('成功推送' . $result->success_daily . '条，今天剩余可推送' . $result->remain_daily . '条数!');
                     } else {
                         alert_back('发生未知错误！');
                     }
@@ -434,6 +409,10 @@ class ContentController extends Controller
             $istop = post('istop', 'int', '', '', 0);
             $isrecommend = post('isrecommend', 'int', '', '', 0);
             $isheadline = post('isheadline', 'int', '', '', 0);
+            
+            $gid = post('gid', 'int') ?: 0;
+            $gtype = post('gtype', 'int') ?: 4;
+            $gnote = post('gnote');
             
             if (! $scode) {
                 alert_back('内容分类不能为空！');
@@ -486,6 +465,9 @@ class ContentController extends Controller
                 'istop' => $istop,
                 'isrecommend' => $isrecommend,
                 'isheadline' => $isheadline,
+                'gid' => $gid,
+                'gtype' => $gtype,
+                'gnote' => $gnote,
                 'update_user' => session('username')
             );
             
@@ -543,6 +525,9 @@ class ContentController extends Controller
             
             // 扩展字段
             $this->assign('extfield', model('admin.content.ExtField')->getModelField($mcode));
+            
+            // 获取会员分组
+            $this->assign('groups', model('admin.member.MemberGroup')->getSelect());
             
             $this->display('content/content.html');
         }

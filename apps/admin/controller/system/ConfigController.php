@@ -88,6 +88,12 @@ class ConfigController extends Controller
                 case 'urlrule':
                     success('修改成功！', url('/admin/Config/index' . get_tab('t7'), false));
                     break;
+                case 'pagetitle':
+                    success('修改成功！', url('/admin/Config/index' . get_tab('t8'), false));
+                    break;
+                case 'member':
+                    success('修改成功！', url('/admin/Config/index' . get_tab('t9'), false));
+                    break;
                 case 'upgrade':
                     success('修改成功！', url('/admin/Upgrade/index' . get_tab('t2'), false));
                     break;
@@ -105,6 +111,9 @@ class ConfigController extends Controller
         $configs['tpl_html_cache']['value'] = $this->config('tpl_html_cache');
         $configs['tpl_html_cache_time']['value'] = $this->config('tpl_html_cache_time');
         $this->assign('configs', $configs);
+        
+        $this->assign('groups', model('admin.member.MemberGroup')->getSelect());
+        
         $this->display('system/config.html');
     }
 
@@ -119,7 +128,7 @@ class ConfigController extends Controller
         
         $config = file_get_contents(CONF_PATH . '/config.php');
         if (preg_match("'$key'", $config)) {
-            if (is_numeric($value)) {
+            if (preg_match('/^[0-9]+$/', $value)) {
                 $config = preg_replace('/(\'' . $key . '\'([\s]+)?=>([\s]+)?)[\w\'\"\s,]+,/', '${1}' . $value . ',', $config);
             } else {
                 $config = preg_replace('/(\'' . $key . '\'([\s]+)?=>([\s]+)?)[\w\'\"\s,]+,/', '${1}\'' . $value . '\',', $config);
@@ -149,8 +158,46 @@ class ConfigController extends Controller
             }
         }
         
-        // 关键词过滤处理
-        if ($key == 'content_keyword_replace' && $value) {
+        // 模板目录修改
+        if (($key == 'tpl_html_dir') && $value) {
+            
+            // 不允许特殊字符
+            if (! preg_match('/^\w+$/', $value)) {
+                return;
+            }
+            
+            $value = basename($value);
+            $htmldir = $this->config('tpl_html_dir');
+            $tpl_path = ROOT_PATH . current($this->config('tpl_dir')) . '/' . model('admin.content.ContentSort')->getTheme();
+            
+            if (! $htmldir || ! file_exists($tpl_path . '/' . $htmldir)) {
+                if (! check_dir($tpl_path . '/' . $value, true)) {
+                    return;
+                } // 原来没有目录时只创建目录，创建失败时直接不修改
+            } else {
+                if ($value != $htmldir) {
+                    if (file_exists($tpl_path . '/' . $value)) {
+                        if (dir_copy($tpl_path . '/' . $htmldir, $tpl_path . '/' . $value)) {
+                            path_delete($tpl_path . '/' . $htmldir, true); // 删除原来的
+                        } else {
+                            return; // 修改失败
+                        }
+                    } else {
+                        if (! rename($tpl_path . '/' . $htmldir, $tpl_path . '/' . $value)) {
+                            return; // 修改失败
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 数据分割处理
+        $hander = array(
+            'content_keyword_replace',
+            'ip_deny',
+            'ip_allow'
+        );
+        if (in_array($key, $hander) && $value) {
             $value = str_replace("\r\n", ",", $value); // 替换回车
             $value = str_replace("，", ",", $value); // 替换中文逗号分割符
         }

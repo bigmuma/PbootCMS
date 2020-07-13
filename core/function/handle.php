@@ -140,7 +140,7 @@ function get_user_ip()
         $cip = '127.0.0.1';
     }
     if (! preg_match('/^[0-9\.]+$/', $cip)) { // 非标准的IP
-        $cip = 'unknow';
+        $cip = '0.0.0.0';
     }
     return htmlspecialchars($cip);
 }
@@ -346,7 +346,7 @@ if (! function_exists('array_column')) {
  * @param string $jump_url跳转地址            
  * @param number $time时间            
  */
-function parse_info_tpl($info_tpl, $string, $jump_url, $time)
+function parse_info_tpl($info_tpl, $string, $jump_url = null, $time = 0)
 {
     if (file_exists($info_tpl)) {
         $tpl_content = file_get_contents($info_tpl);
@@ -447,7 +447,7 @@ function clear_html_blank($string)
     $string = str_replace("\r\n", '', $string); // 清除换行符
     $string = str_replace("\n", '', $string); // 清除换行符
     $string = str_replace("\t", '', $string); // 清除制表符
-    $string = str_replace(' ', '', $string); // 清除大空格
+    $string = str_replace('　', '', $string); // 清除大空格
     $string = str_replace('&nbsp;', '', $string); // 清除 &nbsp;
     $string = preg_replace('/\s+/', ' ', $string); // 清除空格
     return $string;
@@ -640,9 +640,13 @@ function get_http_url($noport = false)
 }
 
 // 获取当前访问域名
-function get_http_host()
+function get_http_host($noport = true)
 {
-    return str_replace(':' . $_SERVER['SERVER_PORT'], '', $_SERVER['HTTP_HOST']);
+    if ($noport) {
+        return str_replace(':' . $_SERVER['SERVER_PORT'], '', $_SERVER['HTTP_HOST']);
+    } else {
+        return $_SERVER['HTTP_HOST'];
+    }
 }
 
 // 服务器信息
@@ -898,6 +902,7 @@ function query_string($unset = null)
         parse_str($qs, $output);
         unset($output['page']);
         $unset = strpos($unset, ',') ? explode(',', $unset) : $unset;
+        
         if (is_array($unset)) {
             foreach ($unset as $value) {
                 if (isset($output[$value])) {
@@ -919,6 +924,46 @@ function query_string($unset = null)
         }
     }
     return $qs ? '?' . $qs : '';
-}  
+}
+
+// 判断是否在子网
+function network_match($ip, $network)
+{
+    if (strpos($network, '/') > 0) {
+        $network = explode('/', $network);
+        $move = 32 - $network[1];
+        if ($network[1] == 0) {
+            return true;
+        }
+        return ((ip2long($ip) >> $move) === (ip2long($network[0]) >> $move)) ? true : false;
+    } elseif ($network == $ip) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// 递归替换
+function preg_replace_r($search, $replace, $subject)
+{
+    while (preg_match($search, $subject)) {
+        $subject = preg_replace($search, $replace, $subject);
+    }
+    return $subject;
+}
+
+// 生成随机验证码
+function create_code($len = 4)
+{
+    $charset = 'ABCDEFGHKMNPRTUVWXY23456789';
+    $charset = str_shuffle($charset);
+    $charlen = strlen($charset) - 1;
+    $code = '';
+    for ($i = 0; $i < $len; $i ++) {
+        $code .= $charset[mt_rand(0, $charlen)];
+    }
+    return $code;
+}
+
 
 
